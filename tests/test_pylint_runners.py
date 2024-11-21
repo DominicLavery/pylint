@@ -100,3 +100,45 @@ def test_pylint_run_jobs_equal_zero_dont_crash_with_cpu_fraction(
                 with patch("pylint.lint.run.Path", _mock_path):
                     Run(testargs, reporter=Reporter())
         assert err.value.code == 0
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "1 2",
+        "max 100000",
+    ],
+)
+def test_pylint_run_jobs_equal_zero_dont_crash_with_cgroupv2(
+        tmp_path: pathlib.Path,
+        contents: str,
+) -> None:
+    """Check that the pylint runner does not crash if `pylint.lint.run._query_cpu`
+    determines only a fraction of a CPU core to be available.
+    """
+    builtin_open = open
+
+    def _mock_open(*args: Any, **kwargs: Any) -> BufferedReader:
+        if args[0] == "/sys/fs/cgroup/cpu.max":
+            return mock_open(read_data=contents)(*args, **kwargs)  # type: ignore[no-any-return]
+        return builtin_open(*args, **kwargs)  # type: ignore[no-any-return]
+
+    pathlib_path = pathlib.Path
+
+    def _mock_path(*args: str, **kwargs: Any) -> pathlib.Path:
+        if args[0] == "/sys/fs/cgroup/cpu/cpu.shares":
+            return MagicMock(is_file=lambda: False)
+        if args[0] == "/sys/fs/cgroup/cpu/cfs_quota_us":
+            return MagicMock(is_file=lambda: False)
+        if args[0] == "/sys/fs/cgroup/cpu.max":
+            return MagicMock(is_file=lambda: True)
+        return pathlib_path(*args, **kwargs)
+
+    filepath = os.path.abspath(__file__)
+    testargs = [filepath, "--jobs=0"]
+    with _test_cwd(tmp_path):
+        with pytest.raises(SystemExit) as err:
+            with patch("builtins.open", _mock_open):
+                with patch("pylint.lint.run.Path", _mock_path):
+                    Run(testargs, reporter=Reporter())
+        assert err.value.code == 0

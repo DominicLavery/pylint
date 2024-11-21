@@ -65,6 +65,18 @@ def _query_cpu() -> int | None:
             cpu_shares = int(file.read().rstrip())
         # For AWS, gives correct value * 1024.
         avail_cpu = int(cpu_shares / 1024)
+    elif Path("/sys/fs/cgroup/cpu.max").is_file():
+        # Cgroupv2 systems
+        with open("/sys/fs/cgroup/cpu.max", encoding="utf-8") as file:
+            line = file.read().rstrip()
+            fields = line.split()
+            if len(fields) == 2:
+                cpu_quota = fields[0]
+                cpu_period = int(fields[1])
+                # Make sure this is not in an unconstrained cgroup
+                if cpu_quota != "max":
+                    cpu_quota = int(cpu_quota)
+                    avail_cpu = int(cpu_quota / cpu_period)
 
     # In K8s Pods also a fraction of a single core could be available
     # As multiprocessing is not able to run only a "fraction" of process
